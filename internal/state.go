@@ -10,18 +10,25 @@ type State struct {
 	n     int       // valid bytes from pos
 }
 
-func (s *State) Reset(enable_cache bool) {
-	s.state = Twister.State1024{}
+func (s *State) reset_cache(enable_cache bool) {
 	s.cache = enable_cache
 	s.pos = 0
 	s.n = 0
 }
 
+func (s *State) Reset(enable_cache bool) {
+	s.state = Twister.State1024{}
+	s.reset_cache(enable_cache)
+}
+
 func (s *State) ResetFromExisting(src *Twister.State1024, enable_cache bool) {
 	s.state = *src
-	s.cache = enable_cache
-	s.pos = 0
-	s.n = 0
+	s.reset_cache(enable_cache)
+}
+
+func (s *State) Init(initials [4]uint64, enable_cache bool) {
+	s.state = Twister.NewState1024_256bitSeed(initials)
+	s.reset_cache(enable_cache)
 }
 
 // resetSqueezeCache drops any pending cached squeeze bytes. Called by
