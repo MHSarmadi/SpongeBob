@@ -81,18 +81,18 @@ func (s *State) squeeze_round_uncached(bytes []byte) {
 // wrapping via %128. Assumes s.n == 0 (buffer empty), so overwrites are safe.
 // Does NOT permute; the caller permutes after refill.
 func (s *State) squeeze_round_cached(RATE_BYTES int) {
-	writePos := s.pos
+	wp := uint(s.pos)
 	var word_bytes [8]byte
 	i := 0
 	remaining := RATE_BYTES
 	for remaining > 0 {
 		binary.BigEndian.PutUint64(word_bytes[:], s.state[i])
-		chunk := min(8, remaining)
+		chunk := uint(min(8, remaining))
 		for j := range chunk {
-			s.buf[(writePos+j)%128] = word_bytes[j]
+			s.buf[(wp+j)&127] = word_bytes[j]
 		}
-		writePos = (writePos + chunk) % 128
-		remaining -= chunk
+		wp = (wp + chunk) & 127
+		remaining -= int(chunk)
 		i++
 	}
 	s.n = RATE_BYTES

@@ -32,7 +32,8 @@ func TestSqueeze_EmptyDoesNotPermute(t *testing.T) {
 			st[15] = 0x9988776655443322
 			before := st
 
-			s := internal.NewState(&st, cache)
+			s := internal.State{}
+			s.ResetFromExisting(&st, cache)
 			s.Squeeze256(nil)
 			s.Squeeze256([]byte{})
 			s.Squeeze512(nil)
@@ -50,15 +51,15 @@ func TestSqueeze_EmptyDoesNotPermute(t *testing.T) {
 func TestSqueeze_XORSemantics(t *testing.T) {
 	for _, r := range squeezeCases() {
 		t.Run(r.name, func(t *testing.T) {
-			var st1 Twister.State1024
-			s1 := internal.NewState(&st1, false)
+			s1 := internal.State{}
+			s1.Reset(false)
 			raw := make([]byte, r.rateSize)
-			r.fn(s1, raw)
+			r.fn(&s1, raw)
 
-			var st2 Twister.State1024
-			s2 := internal.NewState(&st2, false)
+			s2 := internal.State{}
+			s2.Reset(false)
 			ff := bytes.Repeat([]byte{0xFF}, r.rateSize)
-			r.fn(s2, ff)
+			r.fn(&s2, ff)
 
 			for i := range raw {
 				want := raw[i] ^ 0xFF
@@ -78,20 +79,20 @@ func TestSqueeze_Cached_ChunkIndependence(t *testing.T) {
 				if total <= 0 {
 					continue
 				}
-				var st1 Twister.State1024
-				s1 := internal.NewState(&st1, true)
+				s1 := internal.State{}
+				s1.Reset(true)
 				one := make([]byte, total)
-				r.fn(s1, one)
+				r.fn(&s1, one)
 
 				for _, split := range []int{1, 7, total / 2, total - 1, r.rateSize, total - r.rateSize} {
 					if split <= 0 || split >= total {
 						continue
 					}
-					var st2 Twister.State1024
-					s2 := internal.NewState(&st2, true)
+					s2 := internal.State{}
+					s2.Reset(true)
 					splitOut := make([]byte, total)
-					r.fn(s2, splitOut[:split])
-					r.fn(s2, splitOut[split:])
+					r.fn(&s2, splitOut[:split])
+					r.fn(&s2, splitOut[split:])
 					if !bytes.Equal(one, splitOut) {
 						t.Errorf("total=%d split=%d: cached chunk mismatch", total, split)
 					}
@@ -104,16 +105,16 @@ func TestSqueeze_Cached_ChunkIndependence(t *testing.T) {
 func TestSqueeze_Uncached_RateAligned(t *testing.T) {
 	for _, r := range squeezeCases() {
 		t.Run(r.name, func(t *testing.T) {
-			var st1 Twister.State1024
-			s1 := internal.NewState(&st1, false)
+			s1 := internal.State{}
+			s1.Reset(false)
 			one := make([]byte, 2*r.rateSize)
-			r.fn(s1, one)
+			r.fn(&s1, one)
 
-			var st2 Twister.State1024
-			s2 := internal.NewState(&st2, false)
+			s2 := internal.State{}
+			s2.Reset(false)
 			two := make([]byte, 2*r.rateSize)
-			r.fn(s2, two[:r.rateSize])
-			r.fn(s2, two[r.rateSize:])
+			r.fn(&s2, two[:r.rateSize])
+			r.fn(&s2, two[r.rateSize:])
 			if !bytes.Equal(one, two) {
 				t.Error("rate-aligned split mismatch")
 			}
@@ -129,16 +130,16 @@ func TestSqueeze_Uncached_UnalignedDiffers(t *testing.T) {
 				t.Skip("rate too small for a meaningful unaligned split")
 			}
 			half := r.rateSize / 2
-			var st1 Twister.State1024
-			s1 := internal.NewState(&st1, false)
+			s1 := internal.State{}
+			s1.Reset(false)
 			one := make([]byte, r.rateSize)
-			r.fn(s1, one)
+			r.fn(&s1, one)
 
-			var st2 Twister.State1024
-			s2 := internal.NewState(&st2, false)
+			s2 := internal.State{}
+			s2.Reset(false)
 			two := make([]byte, r.rateSize)
-			r.fn(s2, two[:half])
-			r.fn(s2, two[half:])
+			r.fn(&s2, two[:half])
+			r.fn(&s2, two[half:])
 
 			if bytes.Equal(one, two) {
 				t.Error("unaligned split unexpectedly matches one-shot")
@@ -150,13 +151,14 @@ func TestSqueeze_Uncached_UnalignedDiffers(t *testing.T) {
 func TestSqueeze_CachedVsUncached_RateAligned(t *testing.T) {
 	for _, r := range squeezeCases() {
 		t.Run(r.name, func(t *testing.T) {
-			var st1, st2 Twister.State1024
-			sc := internal.NewState(&st1, true)
-			su := internal.NewState(&st2, false)
+			sc := internal.State{}
+			sc.Reset(true)
+			su := internal.State{}
+			su.Reset(false)
 			outC := make([]byte, r.rateSize)
 			outU := make([]byte, r.rateSize)
-			r.fn(sc, outC)
-			r.fn(su, outU)
+			r.fn(&sc, outC)
+			r.fn(&su, outU)
 			if !bytes.Equal(outC, outU) {
 				t.Error("rate-aligned cached vs uncached mismatch")
 			}

@@ -12,9 +12,9 @@ import (
 // squeezes 32 bytes to observe the resulting state. The squeeze rate is
 // arbitrary; we only need a consistent observation function.
 func absorbAndSqueeze(absorb func(*internal.State, []byte, uint64), data []byte, domain uint64) []byte {
-	var st Twister.State1024
-	s := internal.NewState(&st, false)
-	absorb(s, data, domain)
+	s := internal.State{}
+	s.Reset(false)
+	absorb(&s, data, domain)
 	out := make([]byte, 32)
 	s.Squeeze256(out)
 	return out
@@ -82,12 +82,12 @@ func TestAbsorb_RateSensitivity(t *testing.T) {
 
 func TestAbsorb_EmptyInput(t *testing.T) {
 	for _, a := range absorbCases() {
-		var st Twister.State1024
-		s := internal.NewState(&st, false)
+		s := internal.State{}
+		s.Reset(false)
 		// Must not panic.
-		a.f(s, nil, 0)
-		a.f(s, []byte{}, 0)
-		a.f(s, []byte{}, 0xDEADBEEF)
+		a.f(&s, nil, 0)
+		a.f(&s, []byte{}, 0)
+		a.f(&s, []byte{}, 0xDEADBEEF)
 	}
 }
 
@@ -134,9 +134,9 @@ func TestAbsorb_LengthBoundary(t *testing.T) {
 			for i := range data {
 				data[i] = byte(i * 7)
 			}
-			var st Twister.State1024
-			s := internal.NewState(&st, false)
-			r.f(s, data, 0xDEADBEEF)
+			s := internal.State{}
+			s.Reset(false)
+			r.f(&s, data, 0xDEADBEEF)
 		}
 	}
 }
@@ -146,23 +146,25 @@ func TestAbsorb_ResetsCache(t *testing.T) {
 		t.Run(a.name, func(t *testing.T) {
 			// Build a state, prime the cache via a short squeeze.
 			var st Twister.State1024
-			sA := internal.NewState(&st, true)
-			a.f(sA, []byte("seed"), 0)
+			sA := internal.State{}
+			sA.ResetFromExisting(&st, true)
+			a.f(&sA, []byte("seed"), 0)
 			sA.Squeeze256(make([]byte, 4)) // cache now holds ~92 bytes
 
 			// Fork: both paths share the same state from here on.
 			snapshot := st
 
 			// Path A: primed cache, absorb, squeeze.
-			a.f(sA, []byte("x"), 0xABC)
+			a.f(&sA, []byte("x"), 0xABC)
 			outA := make([]byte, 32)
 			sA.Squeeze256(outA)
 
 			// Path B: same state, fresh (empty) cache, absorb, squeeze.
 			var stB Twister.State1024
 			stB = snapshot
-			sB := internal.NewState(&stB, true)
-			a.f(sB, []byte("x"), 0xABC)
+			sB := internal.State{}
+			sB.ResetFromExisting(&stB, true)
+			a.f(&sB, []byte("x"), 0xABC)
 			outB := make([]byte, 32)
 			sB.Squeeze256(outB)
 

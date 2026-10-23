@@ -5,16 +5,16 @@ import (
 	"testing"
 
 	"github.com/MHSarmadi/SpongeBob/internal"
-	"github.com/MHSarmadi/Twister"
 )
 
 func TestAbsorbThenSqueeze_Deterministic(t *testing.T) {
 	msg := []byte("the quick brown fox")
 	domain := uint64(0xAABBCCDDEEFF0011)
 
-	var st1, st2 Twister.State1024
-	s1 := internal.NewState(&st1, false)
-	s2 := internal.NewState(&st2, false)
+	s1 := internal.State{}
+	s1.Reset(false)
+	s2 := internal.State{}
+	s2.Reset(false)
 	s1.Absorb256(msg, domain)
 	s2.Absorb256(msg, domain)
 
@@ -32,16 +32,17 @@ func TestAbsorbThenSqueeze_CachedMatchesUncached(t *testing.T) {
 	for _, a := range absorbCases() {
 		for _, r := range squeezeCases() {
 			t.Run(a.name+"/"+r.name, func(t *testing.T) {
-				var st1, st2 Twister.State1024
-				sc := internal.NewState(&st1, true)
-				su := internal.NewState(&st2, false)
-				a.f(sc, msg, 0xABCDEF)
-				a.f(su, msg, 0xABCDEF)
+				sc := internal.State{}
+				sc.Reset(true)
+				su := internal.State{}
+				su.Reset(false)
+				a.f(&sc, msg, 0xABCDEF)
+				a.f(&su, msg, 0xABCDEF)
 
 				outC := make([]byte, r.rateSize*2)
 				outU := make([]byte, r.rateSize*2)
-				r.fn(sc, outC)
-				r.fn(su, outU)
+				r.fn(&sc, outC)
+				r.fn(&su, outU)
 				if !bytes.Equal(outC, outU) {
 					t.Error("cached vs uncached mismatch after absorb")
 				}
@@ -60,8 +61,8 @@ func TestAbsorbThenSqueeze_MessageSensitivity(t *testing.T) {
 	}
 	seen := make(map[[32]byte][]byte)
 	for _, msg := range msgs {
-		var st Twister.State1024
-		s := internal.NewState(&st, false)
+		s := internal.State{}
+		s.Reset(false)
 		s.Absorb256(msg, 0)
 		out := make([]byte, 32)
 		s.Squeeze256(out)
@@ -76,16 +77,16 @@ func TestAbsorbThenSqueeze_MessageSensitivity(t *testing.T) {
 
 func TestAbsorbThenSqueeze_MultipleSqueezes(t *testing.T) {
 	// Consecutive cached squeezes must produce a continuous stream.
-	var st1 Twister.State1024
-	s1 := internal.NewState(&st1, true)
+	s1 := internal.State{}
+	s1.Reset(true)
 	s1.Absorb256([]byte("msg"), 0xDEAD)
 	stream := make([]byte, 96*3)
 	for i := 0; i < 3; i++ {
 		s1.Squeeze256(stream[i*96 : (i+1)*96])
 	}
 
-	var st2 Twister.State1024
-	s2 := internal.NewState(&st2, true)
+	s2 := internal.State{}
+	s2.Reset(true)
 	s2.Absorb256([]byte("msg"), 0xDEAD)
 	oneShot := make([]byte, 96*3)
 	s2.Squeeze256(oneShot)
