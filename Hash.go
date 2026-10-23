@@ -4,7 +4,19 @@ import (
 	"github.com/MHSarmadi/SpongeBob/internal"
 )
 
-func Hash512(data []byte, context string, output []byte) {
+func Hash128(data []byte, context string, output []byte) {
+	var state internal.State
+	defer state.Wipe()
+
+	state.Init([4]uint64{_SP0NGB0B, _PR1M1T1V, _SARMADI_, __HASH___}, false)
+
+	state.Absorb256([]byte(context), _C0NT3XT_)
+	state.Absorb256(data, _PLA1NTXT)
+
+	state.Squeeze256(output)
+}
+
+func Hash256(data []byte, context string, output []byte) {
 	var state internal.State
 	defer state.Wipe()
 
@@ -16,7 +28,7 @@ func Hash512(data []byte, context string, output []byte) {
 	state.Squeeze512(output)
 }
 
-func Hash960(data []byte, context string, output []byte) {
+func Hash480(data []byte, context string, output []byte) {
 	var state internal.State
 	defer state.Wipe()
 
