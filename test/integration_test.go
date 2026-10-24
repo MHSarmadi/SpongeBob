@@ -12,9 +12,9 @@ func TestAbsorbThenSqueeze_Deterministic(t *testing.T) {
 	domain := uint64(0xAABBCCDDEEFF0011)
 
 	s1 := internal.State{}
-	s1.Reset(false)
+	s1.Init(zero_initials, false)
 	s2 := internal.State{}
-	s2.Reset(false)
+	s2.Init(zero_initials, false)
 	s1.Absorb256(msg, domain)
 	s2.Absorb256(msg, domain)
 
@@ -33,9 +33,9 @@ func TestAbsorbThenSqueeze_CachedMatchesUncached(t *testing.T) {
 		for _, r := range squeezeCases() {
 			t.Run(a.name+"/"+r.name, func(t *testing.T) {
 				sc := internal.State{}
-				sc.Reset(true)
+				sc.Init(zero_initials, true)
 				su := internal.State{}
-				su.Reset(false)
+				su.Init(zero_initials, false)
 				a.f(&sc, msg, 0xABCDEF)
 				a.f(&su, msg, 0xABCDEF)
 
@@ -62,7 +62,7 @@ func TestAbsorbThenSqueeze_MessageSensitivity(t *testing.T) {
 	seen := make(map[[32]byte][]byte)
 	for _, msg := range msgs {
 		s := internal.State{}
-		s.Reset(false)
+		s.Init(zero_initials, false)
 		s.Absorb256(msg, 0)
 		out := make([]byte, 32)
 		s.Squeeze256(out)
@@ -78,7 +78,7 @@ func TestAbsorbThenSqueeze_MessageSensitivity(t *testing.T) {
 func TestAbsorbThenSqueeze_MultipleSqueezes(t *testing.T) {
 	// Consecutive cached squeezes must produce a continuous stream.
 	s1 := internal.State{}
-	s1.Reset(true)
+	s1.Init(zero_initials, true)
 	s1.Absorb256([]byte("msg"), 0xDEAD)
 	stream := make([]byte, 96*3)
 	for i := 0; i < 3; i++ {
@@ -86,7 +86,7 @@ func TestAbsorbThenSqueeze_MultipleSqueezes(t *testing.T) {
 	}
 
 	s2 := internal.State{}
-	s2.Reset(true)
+	s2.Init(zero_initials, true)
 	s2.Absorb256([]byte("msg"), 0xDEAD)
 	oneShot := make([]byte, 96*3)
 	s2.Squeeze256(oneShot)

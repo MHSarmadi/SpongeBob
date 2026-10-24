@@ -7,7 +7,7 @@ import (
 // This function ALWAYS permute the state.
 // Even for an empty `data`, it absorbs the padding which is never empty.
 func (s *State) absorb(data []byte, DOMAIN_SEPARATION uint64, RATE_BYTES int) {
-	s.resetSqueezeCache()
+	s.reset_cache(s.cache)
 
 	rate_blocks := len(data)/RATE_BYTES + 1
 

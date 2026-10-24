@@ -9,6 +9,8 @@ import (
 	"golang.org/x/crypto/sha3"
 )
 
+var zero_initials = [4]uint64{0, 0, 0, 0}
+
 // ---------- shared setup ----------
 
 // benchData returns a deterministic non-zero payload of n bytes. Deterministic
@@ -76,7 +78,7 @@ func BenchmarkSqueeze(b *testing.B) {
 				out := make([]byte, size)
 				b.Run(name, func(b *testing.B) {
 					s := internal.State{}
-					s.Reset(cache)
+					s.Init(zero_initials, cache)
 					r.absorb(&s, []byte("seed"), 0x1) // give the state something non-zero
 					b.SetBytes(int64(size))
 					b.ReportAllocs()
@@ -101,7 +103,7 @@ func benchOneShot(b *testing.B, rateBytes int, cache bool) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		var s internal.State
-		s.Reset(cache)
+		s.Init(zero_initials, cache)
 		switch rateBytes {
 		case internal.RATE_OF_CAP256_BYTES:
 			s.Absorb256(msg, 0xDEADBEEFCAFEBABE)

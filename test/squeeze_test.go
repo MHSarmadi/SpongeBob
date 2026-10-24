@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/MHSarmadi/SpongeBob/internal"
-	"github.com/MHSarmadi/Twister"
 )
 
 type rateCase struct {
@@ -26,14 +25,14 @@ func TestSqueeze_EmptyDoesNotPermute(t *testing.T) {
 	for _, cache := range []bool{false, true} {
 		name := map[bool]string{false: "uncached", true: "cached"}[cache]
 		t.Run(name, func(t *testing.T) {
-			var st Twister.State1024
-			st[0] = 0xDEADBEEFCAFEBABE
-			st[5] = 0x1122334455667788
-			st[15] = 0x9988776655443322
-			before := st
-
+			var initials = [4]uint64{0xDEADBEEFCAFEBABE, 0x1122334455667788, 0x9988776655443322}
 			s := internal.State{}
-			s.ResetFromExisting(&st, cache)
+
+			s.Init(initials, cache)
+
+			var before [4]byte
+			s.Clone().Squeeze256(before[:])
+
 			s.Squeeze256(nil)
 			s.Squeeze256([]byte{})
 			s.Squeeze512(nil)
@@ -41,7 +40,10 @@ func TestSqueeze_EmptyDoesNotPermute(t *testing.T) {
 			s.Squeeze960(nil)
 			s.Squeeze960([]byte{})
 
-			if st != before {
+			var after [4]byte
+			s.Clone().Squeeze256(after[:])
+
+			if after != before {
 				t.Error("empty squeeze permuted state")
 			}
 		})
@@ -52,12 +54,12 @@ func TestSqueeze_XORSemantics(t *testing.T) {
 	for _, r := range squeezeCases() {
 		t.Run(r.name, func(t *testing.T) {
 			s1 := internal.State{}
-			s1.Reset(false)
+			s1.Init(zero_initials, false)
 			raw := make([]byte, r.rateSize)
 			r.fn(&s1, raw)
 
 			s2 := internal.State{}
-			s2.Reset(false)
+			s2.Init(zero_initials, false)
 			ff := bytes.Repeat([]byte{0xFF}, r.rateSize)
 			r.fn(&s2, ff)
 
@@ -80,7 +82,7 @@ func TestSqueeze_Cached_ChunkIndependence(t *testing.T) {
 					continue
 				}
 				s1 := internal.State{}
-				s1.Reset(true)
+				s1.Init(zero_initials, true)
 				one := make([]byte, total)
 				r.fn(&s1, one)
 
@@ -89,7 +91,7 @@ func TestSqueeze_Cached_ChunkIndependence(t *testing.T) {
 						continue
 					}
 					s2 := internal.State{}
-					s2.Reset(true)
+					s2.Init(zero_initials, true)
 					splitOut := make([]byte, total)
 					r.fn(&s2, splitOut[:split])
 					r.fn(&s2, splitOut[split:])
@@ -106,12 +108,12 @@ func TestSqueeze_Uncached_RateAligned(t *testing.T) {
 	for _, r := range squeezeCases() {
 		t.Run(r.name, func(t *testing.T) {
 			s1 := internal.State{}
-			s1.Reset(false)
+			s1.Init(zero_initials, false)
 			one := make([]byte, 2*r.rateSize)
 			r.fn(&s1, one)
 
 			s2 := internal.State{}
-			s2.Reset(false)
+			s2.Init(zero_initials, false)
 			two := make([]byte, 2*r.rateSize)
 			r.fn(&s2, two[:r.rateSize])
 			r.fn(&s2, two[r.rateSize:])
@@ -131,12 +133,12 @@ func TestSqueeze_Uncached_UnalignedDiffers(t *testing.T) {
 			}
 			half := r.rateSize / 2
 			s1 := internal.State{}
-			s1.Reset(false)
+			s1.Init(zero_initials, false)
 			one := make([]byte, r.rateSize)
 			r.fn(&s1, one)
 
 			s2 := internal.State{}
-			s2.Reset(false)
+			s2.Init(zero_initials, false)
 			two := make([]byte, r.rateSize)
 			r.fn(&s2, two[:half])
 			r.fn(&s2, two[half:])
@@ -152,9 +154,9 @@ func TestSqueeze_CachedVsUncached_RateAligned(t *testing.T) {
 	for _, r := range squeezeCases() {
 		t.Run(r.name, func(t *testing.T) {
 			sc := internal.State{}
-			sc.Reset(true)
+			sc.Init(zero_initials, true)
 			su := internal.State{}
-			su.Reset(false)
+			su.Init(zero_initials, false)
 			outC := make([]byte, r.rateSize)
 			outU := make([]byte, r.rateSize)
 			r.fn(&sc, outC)

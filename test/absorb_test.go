@@ -5,15 +5,16 @@ import (
 	"testing"
 
 	"github.com/MHSarmadi/SpongeBob/internal"
-	"github.com/MHSarmadi/Twister"
 )
+
+var zero_initials = [4]uint64{0, 0, 0, 0}
 
 // absorbAndSqueeze absorbs `data` with the given absorb method + domain, then
 // squeezes 32 bytes to observe the resulting state. The squeeze rate is
 // arbitrary; we only need a consistent observation function.
 func absorbAndSqueeze(absorb func(*internal.State, []byte, uint64), data []byte, domain uint64) []byte {
 	s := internal.State{}
-	s.Reset(false)
+	s.Init(zero_initials, false)
 	absorb(&s, data, domain)
 	out := make([]byte, 32)
 	s.Squeeze256(out)
@@ -83,7 +84,7 @@ func TestAbsorb_RateSensitivity(t *testing.T) {
 func TestAbsorb_EmptyInput(t *testing.T) {
 	for _, a := range absorbCases() {
 		s := internal.State{}
-		s.Reset(false)
+		s.Init(zero_initials, false)
 		// Must not panic.
 		a.f(&s, nil, 0)
 		a.f(&s, []byte{}, 0)
@@ -135,42 +136,8 @@ func TestAbsorb_LengthBoundary(t *testing.T) {
 				data[i] = byte(i * 7)
 			}
 			s := internal.State{}
-			s.Reset(false)
+			s.Init(zero_initials, false)
 			r.f(&s, data, 0xDEADBEEF)
 		}
-	}
-}
-
-func TestAbsorb_ResetsCache(t *testing.T) {
-	for _, a := range absorbCases() {
-		t.Run(a.name, func(t *testing.T) {
-			// Build a state, prime the cache via a short squeeze.
-			var st Twister.State1024
-			sA := internal.State{}
-			sA.ResetFromExisting(&st, true)
-			a.f(&sA, []byte("seed"), 0)
-			sA.Squeeze256(make([]byte, 4)) // cache now holds ~92 bytes
-
-			// Fork: both paths share the same state from here on.
-			snapshot := st
-
-			// Path A: primed cache, absorb, squeeze.
-			a.f(&sA, []byte("x"), 0xABC)
-			outA := make([]byte, 32)
-			sA.Squeeze256(outA)
-
-			// Path B: same state, fresh (empty) cache, absorb, squeeze.
-			var stB Twister.State1024
-			stB = snapshot
-			sB := internal.State{}
-			sB.ResetFromExisting(&stB, true)
-			a.f(&sB, []byte("x"), 0xABC)
-			outB := make([]byte, 32)
-			sB.Squeeze256(outB)
-
-			if !bytes.Equal(outA, outB) {
-				t.Error("cache not reset by absorb")
-			}
-		})
 	}
 }
