@@ -31,7 +31,8 @@ func TestSqueeze_EmptyDoesNotPermute(t *testing.T) {
 			s.Init(initials, cache)
 
 			var before [4]byte
-			s.Clone().Squeeze256(before[:])
+			clone_b := s.Clone()
+			clone_b.Squeeze256(before[:])
 
 			s.Squeeze256(nil)
 			s.Squeeze256([]byte{})
@@ -41,7 +42,8 @@ func TestSqueeze_EmptyDoesNotPermute(t *testing.T) {
 			s.Squeeze960([]byte{})
 
 			var after [4]byte
-			s.Clone().Squeeze256(after[:])
+			clone_a := s.Clone()
+			clone_a.Squeeze256(after[:])
 
 			if after != before {
 				t.Error("empty squeeze permuted state")

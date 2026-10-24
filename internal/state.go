@@ -4,14 +4,21 @@ import "github.com/MHSarmadi/Twister"
 
 type State struct {
 	state Twister.State1024
-	cache bool      // decides whether squeeze should use cache or not
-	buf   [128]byte // ring buffer; must be >= max rate
-	pos   int       // read position in buf (start of valid bytes)
-	n     int       // valid bytes from pos
+	cache bool // decides whether squeeze should use cache or not
+
+	sq_buf [128]byte // ring buffer; must be >= max rate
+	sq_pos int       // read position in buf (start of valid bytes)
+	sq_n   int       // valid bytes from pos
+
+	ab_buf    [128]byte // array buffer; must be >= max rate
+	ab_len    int
+	ab_ds     uint64 // domain separation
+	ab_sealed bool
 }
 
 func (s *State) Init(initials [4]uint64, enable_cache bool) {
 	s.state = Twister.NewState1024_256bitSeed(initials)
+	s.ab_sealed = true
 	s.reset_cache(enable_cache)
 }
 
@@ -20,27 +27,24 @@ func (s *State) Permute() {
 	s.reset_cache(s.cache)
 }
 
-func (s *State) Clone() *State {
-	return &State{
-		state: s.state,
-		cache: s.cache,
-		buf:   s.buf,
-		pos:   s.pos,
-		n:     s.n,
-	}
+func (s *State) Clone() State {
+	return *s
 }
 
 func (s *State) Wipe() {
 	s.state.Wipe()
-	if s.cache {
-		for i := range s.buf {
-			s.buf[i] = 0
-		}
+	for i := range s.sq_buf {
+		s.sq_buf[i] = 0
 	}
+	for i := range s.ab_buf {
+		s.ab_buf[i] = 0
+	}
+	s.sq_pos, s.sq_n, s.ab_len = 0, 0, 0
+	s.ab_sealed = true
 }
 
 func (s *State) reset_cache(enable_cache bool) {
 	s.cache = enable_cache
-	s.pos = 0
-	s.n = 0
+	s.sq_pos = 0
+	s.sq_n = 0
 }

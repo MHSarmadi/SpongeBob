@@ -6,6 +6,6 @@ func MAC(secret, data []byte, context string, output []byte) {
 	var h streambob.Keyed
 	defer h.Wipe()
 	h.Init128(secret, context)
-	h.Write(data)
-	h.Read(output)
+	h.Absorb(data)
+	h.Squeeze(output)
 }

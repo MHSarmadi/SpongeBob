@@ -37,24 +37,24 @@ func (s *State) squeeze_uncached(out []byte, RATE_BYTES int) {
 func (s *State) squeeze_cached(out []byte, RATE_BYTES int) {
 	got := 0
 	for got < len(out) {
-		if s.n == 0 {
+		if s.sq_n == 0 {
 			s.squeeze_round_cached(RATE_BYTES)
 			s.state.Permute()
 		}
-		take := min(len(out)-got, s.n)
+		take := min(len(out)-got, s.sq_n)
 
-		first := min(take, len(s.buf)-s.pos) // bytes before the ring wraps
+		first := min(take, len(s.sq_buf)-s.sq_pos) // bytes before the ring wraps
 		for j := range first {
-			out[got+j] ^= s.buf[s.pos+j]
+			out[got+j] ^= s.sq_buf[s.sq_pos+j]
 		}
 		// take <= RATE_BYTES <= len(s.buf), so the tail wraps at most once
 		// and `take-first` never exceeds the buffer.
 		for j := range take - first {
-			out[got+first+j] ^= s.buf[j]
+			out[got+first+j] ^= s.sq_buf[j]
 		}
 
-		s.pos = (s.pos + take) % len(s.buf)
-		s.n -= take
+		s.sq_pos = (s.sq_pos + take) % len(s.sq_buf)
+		s.sq_n -= take
 		got += take
 	}
 }
@@ -81,7 +81,7 @@ func (s *State) squeeze_round_uncached(bytes []byte) {
 // wrapping via %128. Assumes s.n == 0 (buffer empty), so overwrites are safe.
 // Does NOT permute; the caller permutes after refill.
 func (s *State) squeeze_round_cached(RATE_BYTES int) {
-	wp := uint(s.pos)
+	wp := uint(s.sq_pos)
 	var word_bytes [8]byte
 	i := 0
 	remaining := RATE_BYTES
@@ -89,13 +89,13 @@ func (s *State) squeeze_round_cached(RATE_BYTES int) {
 		binary.BigEndian.PutUint64(word_bytes[:], s.state[i])
 		chunk := uint(min(8, remaining))
 		for j := range chunk {
-			s.buf[(wp+j)&127] = word_bytes[j]
+			s.sq_buf[(wp+j)&127] = word_bytes[j]
 		}
 		wp = (wp + chunk) & 127
 		remaining -= int(chunk)
 		i++
 	}
-	s.n = RATE_BYTES
+	s.sq_n = RATE_BYTES
 }
 
 // This function squeezes into XOR. pass a full-zero `out` if you want only extraction.

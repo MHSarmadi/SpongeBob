@@ -5,8 +5,9 @@ import (
 )
 
 type Unkeyed struct {
-	state   internal.State
-	variant variant
+	state      internal.State
+	variant    variant
+	rate_bytes int
 }
 
 func NewUnkeyed128(context string) *Unkeyed {
@@ -49,11 +50,20 @@ func (h *Unkeyed) init(v variant, context string, DOMAIN uint64) {
 	h.state.Init([4]uint64{internal.SP0NGB0B, internal.PR1M1T1V, internal.SARMADI_, DOMAIN}, true)
 
 	h.state.Absorb256([]byte(context), internal.C0NT3XT_)
+	h.state.SealAbsorb(internal.RATE_OF_CAP256_BYTES)
 
 	h.variant = v
+	switch v {
+	case Variant128:
+		h.rate_bytes = internal.RATE_OF_CAP256_BYTES
+	case Variant256:
+		h.rate_bytes = internal.RATE_OF_CAP512_BYTES
+	case Variant480:
+		h.rate_bytes = internal.RATE_OF_CAP960_BYTES
+	}
 }
 
-func (h *Unkeyed) Write(p []byte) (int, error) {
+func (h *Unkeyed) Absorb(p []byte) (int, error) {
 	if h.variant == 0 {
 		return 0, errUninitialized
 	}
@@ -68,18 +78,23 @@ func (h *Unkeyed) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
+func (h *Unkeyed) Write(p []byte) (int, error) {
+	return h.Absorb(p)
+}
+
 func (h *Unkeyed) Permute() error {
 	if h.variant == 0 {
 		return errUninitialized
 	}
-	h.state.Permute()
+	h.state.SealAbsorb(h.rate_bytes) // Permutes internally
 	return nil
 }
 
-func (h *Unkeyed) Read(p []byte) (int, error) {
+func (h *Unkeyed) Squeeze(p []byte) (int, error) {
 	if h.variant == 0 {
 		return 0, errUninitialized
 	}
+	h.state.SealAbsorb(h.rate_bytes)
 	switch h.variant {
 	case Variant128:
 		h.state.Squeeze256(p)
@@ -89,6 +104,10 @@ func (h *Unkeyed) Read(p []byte) (int, error) {
 		h.state.Squeeze960(p)
 	}
 	return len(p), nil
+}
+
+func (h *Unkeyed) Read(p []byte) (int, error) {
+	return h.Squeeze(p)
 }
 
 func (h *Unkeyed) Wipe() {

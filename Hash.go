@@ -6,22 +6,28 @@ func Hash128(data []byte, context string, output []byte) {
 	var h streambob.Unkeyed
 	defer h.Wipe()
 	h.Init128(context)
-	h.Write(data)
-	h.Read(output)
+	if len(data) > 0 {
+		h.Absorb(data)
+	}
+	h.Squeeze(output)
 }
 
 func Hash256(data []byte, context string, output []byte) {
 	var h streambob.Unkeyed
 	defer h.Wipe()
 	h.Init256(context)
-	h.Write(data)
-	h.Read(output)
+	if len(data) > 0 {
+		h.Absorb(data)
+	}
+	h.Squeeze(output)
 }
 
 func Hash480(data []byte, context string, output []byte) {
 	var h streambob.Unkeyed
 	defer h.Wipe()
 	h.Init480(context)
-	h.Write(data)
-	h.Read(output)
+	if len(data) > 0 {
+		h.Absorb(data)
+	}
+	h.Squeeze(output)
 }
