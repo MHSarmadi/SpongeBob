@@ -50,9 +50,9 @@ func (h *Keyed) init(v variant, secret []byte, context string, DOMAIN uint64) {
 	h.state.Init([4]uint64{internal.SP0NGB0B, internal.PR1M1T1V, internal.SARMADI_, DOMAIN}, true)
 
 	h.state.Absorb256([]byte(context), internal.C0NT3XT_)
-	h.state.SealAbsorb(internal.RATE_OF_CAP256_BYTES)
+	h.state.SealAbsorb()
 	h.state.Absorb960(secret, internal.S3CR3T__)
-	h.state.SealAbsorb(internal.RATE_OF_CAP960_BYTES)
+	h.state.SealAbsorb()
 
 	h.variant = v
 	switch v {
@@ -88,7 +88,9 @@ func (h *Keyed) Permute() error {
 	if h.variant == 0 {
 		return errUninitialized
 	}
-	h.state.SealAbsorb(h.rate_bytes) // Permutes internally
+	if !h.state.SealAbsorb() {
+		h.state.Permute()
+	}
 	return nil
 }
 
@@ -96,7 +98,6 @@ func (h *Keyed) Squeeze(p []byte) (int, error) {
 	if h.variant == 0 {
 		return 0, errUninitialized
 	}
-	h.state.SealAbsorb(h.rate_bytes)
 	switch h.variant {
 	case Variant128:
 		h.state.Squeeze256(p)

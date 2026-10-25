@@ -13,6 +13,7 @@ type State struct {
 	ab_buf    [128]byte // array buffer; must be >= max rate
 	ab_len    int
 	ab_ds     uint64 // domain separation
+	ab_rate   int    // rate of the current absorb buffer
 	ab_sealed bool
 }
 
@@ -39,7 +40,7 @@ func (s *State) Wipe() {
 	for i := range s.ab_buf {
 		s.ab_buf[i] = 0
 	}
-	s.sq_pos, s.sq_n, s.ab_len = 0, 0, 0
+	s.sq_pos, s.sq_n, s.ab_len, s.ab_rate = 0, 0, 0, 0
 	s.ab_sealed = true
 }
 

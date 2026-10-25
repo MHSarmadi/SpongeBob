@@ -10,6 +10,7 @@ import (
 // With cache enabled, arbitrary chunk boundaries produce the same concatenated
 // output as one big call. Without cache, chunking must align to RATE_BYTES.
 func (s *State) squeeze(out []byte, RATE_BYTES int) {
+	s.SealAbsorb()
 	if s.cache {
 		s.squeeze_cached(out, RATE_BYTES)
 	} else {
