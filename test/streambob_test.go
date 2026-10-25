@@ -114,7 +114,7 @@ func TestUnkeyed_PermuteActsAsSeparator(t *testing.T) {
 	}
 }
 
-func TestUnkeyed_PermuteBeforeAbsorbNoop(t *testing.T) {
+func TestUnkeyed_PermuteBeforeAbsorbPermutes(t *testing.T) {
 	h1 := newUnkeyed(t, 128, testContext)
 	defer h1.Wipe()
 	h1.Permute()

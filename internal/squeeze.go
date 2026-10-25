@@ -11,7 +11,7 @@ import (
 // output as one big call. Without cache, chunking must align to RATE_BYTES.
 func (s *State) squeeze(out []byte, RATE_BYTES int) {
 	s.SealAbsorb()
-	if s.cache {
+	if s.streaming {
 		s.squeeze_cached(out, RATE_BYTES)
 	} else {
 		s.squeeze_uncached(out, RATE_BYTES)

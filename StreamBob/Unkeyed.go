@@ -67,6 +67,9 @@ func (h *Unkeyed) Absorb(p []byte) (int, error) {
 	if h.variant == 0 {
 		return 0, errUninitialized
 	}
+	if len(p) == 0 {
+		return 0, nil // no-op: don't unseal for an empty absorb
+	}
 	switch h.variant {
 	case Variant128:
 		h.state.Absorb256(p, internal.PLA1NTXT)

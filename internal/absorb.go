@@ -26,31 +26,18 @@ func (s *State) StreamAbsorb(data []byte, RATE_BYTES int) {
 		panic("StreamAbsorb: RATE_BYTES exceeds ab_buf")
 	}
 
-	if s.ab_len > 0 {
+	for len(data) > 0 {
 		n := copy(s.ab_buf[s.ab_len:], data)
 		s.ab_len += n
 		data = data[n:]
 
-		// Process ALL full blocks currently in the buffer, keeping the tail.
-		off := 0
-		for s.ab_len-off >= RATE_BYTES {
-			s.permuteBlock(s.ab_buf[off : off+RATE_BYTES])
-			off += RATE_BYTES
-		}
-		if off > 0 {
-			s.ab_len -= off
-			if s.ab_len > 0 {
-				copy(s.ab_buf[:], s.ab_buf[off:off+s.ab_len])
-			}
+		// Drain EVERY full block currently buffered.
+		for s.ab_len >= RATE_BYTES {
+			s.permuteBlock(s.ab_buf[:RATE_BYTES])
+			copy(s.ab_buf[:], s.ab_buf[RATE_BYTES:s.ab_len])
+			s.ab_len -= RATE_BYTES
 		}
 	}
-
-	for len(data) >= RATE_BYTES {
-		s.permuteBlock(data[:RATE_BYTES])
-		data = data[RATE_BYTES:]
-	}
-
-	s.ab_len += copy(s.ab_buf[s.ab_len:], data)
 }
 
 // SealAbsorb pads the buffered tail (with pad10*1 + rate domain) and permutes
@@ -70,7 +57,7 @@ func (s *State) SealAbsorb() bool {
 	s.state.Permute()
 	s.ab_len = 0
 	s.ab_sealed = true
-	s.reset_cache(s.cache)
+	s.reset_cache(s.streaming)
 	return true
 }
 
@@ -78,17 +65,17 @@ func (s *State) permuteBlock(block []byte) {
 	s.absorb_round(block)
 	s.state[15] ^= s.ab_ds
 	s.state.Permute()
-	s.reset_cache(s.cache)
+	s.reset_cache(s.streaming)
 }
 
 func (s *State) absorb(data []byte, ds uint64, RATE_BYTES int) {
 	if s.ab_sealed {
-		s.StartAbsorb(ds, RATE_BYTES, s.cache)
+		s.StartAbsorb(ds, RATE_BYTES, s.streaming)
 	} else if s.ab_ds != ds || s.ab_rate != RATE_BYTES {
 		panic("absorb: domain or rate change mid-stream; call SealAbsorb first")
 	}
 	s.StreamAbsorb(data, RATE_BYTES)
-	if !s.cache {
+	if !s.streaming {
 		s.SealAbsorb()
 	}
 }

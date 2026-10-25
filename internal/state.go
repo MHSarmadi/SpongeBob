@@ -3,8 +3,8 @@ package internal
 import "github.com/MHSarmadi/Twister"
 
 type State struct {
-	state Twister.State1024
-	cache bool // decides whether squeeze should use cache or not
+	state     Twister.State1024
+	streaming bool // decides whether squeeze should use cache/buffering or not
 
 	sq_buf [128]byte // ring buffer; must be >= max rate
 	sq_pos int       // read position in buf (start of valid bytes)
@@ -25,7 +25,7 @@ func (s *State) Init(initials [4]uint64, enable_cache bool) {
 
 func (s *State) Permute() {
 	s.state.Permute()
-	s.reset_cache(s.cache)
+	s.reset_cache(s.streaming)
 }
 
 func (s *State) Clone() State {
@@ -45,7 +45,7 @@ func (s *State) Wipe() {
 }
 
 func (s *State) reset_cache(enable_cache bool) {
-	s.cache = enable_cache
+	s.streaming = enable_cache
 	s.sq_pos = 0
 	s.sq_n = 0
 }
