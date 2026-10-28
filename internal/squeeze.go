@@ -4,64 +4,79 @@ import (
 	"encoding/binary"
 )
 
-// This function squeezes into XOR. Pass a full-zero `out` if you want pure
-// extraction. Empty `out` does nothing — state is not permuted.
-//
-// With cache enabled, arbitrary chunk boundaries produce the same concatenated
-// output as one big call. Without cache, chunking must align to RATE_BYTES.
-func (s *State) squeeze(out []byte, RATE_BYTES int) {
-	s.SealAbsorb()
-	if s.streaming {
-		s.squeeze_cached(out, RATE_BYTES)
-	} else {
-		s.squeeze_uncached(out, RATE_BYTES)
+// BeginSqueeze transitions _PHASE_READY → _PHASE_SQUEEZING and configures the
+// output rate and streaming mode. Streaming callers must call SealAbsorb
+// before this — BeginSqueeze does not seal implicitly (panics in
+// _PHASE_ABSORBING).
+func (s *State) BeginSqueeze(RATE_BYTES int, stream bool) {
+	switch RATE_BYTES {
+	case RATE_OF_CAP256_BYTES, RATE_OF_CAP512_BYTES, RATE_OF_CAP960_BYTES:
+	default:
+		panic("Unknown rate bytes.")
+	}
+	switch s.phase {
+	case _PHASE_FRESH:
+		panic("Init first.")
+	case _PHASE_READY:
+		s.rate = RATE_BYTES
+		s.phase = _PHASE_SQUEEZING
+		s.streaming = stream
+		s.len = 0
+	case _PHASE_ABSORBING:
+		panic("Can't squeeze mid-absorption.")
+	case _PHASE_SQUEEZING:
+		panic("Already squeezing.")
+	default:
+		panic("Unknown phase.")
 	}
 }
 
-func (s *State) squeeze_uncached(out []byte, RATE_BYTES int) {
-	rate_blocks := (len(out) + RATE_BYTES - 1) / RATE_BYTES
+// Squeeze XORs the output stream into out. Empty out is a no-op.
+// stream=false: out must be read in rate-sized chunks; each block permutes.
+// stream=true:  arbitrary chunk sizes; pending bytes are shifted, not dropped.
+// Panics unless _PHASE_SQUEEZING.
+func (s *State) Squeeze(out []byte) {
+	switch s.phase {
+	case _PHASE_FRESH:
+		panic("Init first.")
+	case _PHASE_READY:
+		panic("BeginSqueeze first.")
+	case _PHASE_ABSORBING:
+		panic("Can't squeeze mid-absorption.")
+	case _PHASE_SQUEEZING:
+		if s.streaming {
+			got := 0
+			for got < len(out) {
+				if s.len == 0 {
+					s.squeeze_block_stream()
+					s.state.Permute()
+				}
+				take := min(len(out)-got, s.len)
 
-	for i := range rate_blocks {
-		s.squeeze_round_uncached(out[i*RATE_BYTES : min((i+1)*RATE_BYTES, len(out))])
-		s.state.Permute()
+				for j := range take {
+					out[got+j] ^= s.buffer[j]
+				}
+
+				copy(s.buffer[:], s.buffer[take:s.len])
+				s.len -= take
+				got += take
+			}
+		} else {
+			rate_blocks := (len(out) + s.rate - 1) / s.rate
+
+			for i := range rate_blocks {
+				s.squeeze_block_nonstream(out[i*s.rate : min((i+1)*s.rate, len(out))])
+				s.state.Permute()
+			}
+		}
+	default:
+		panic("Unknown phase.")
 	}
 }
 
-// squeeze_cached extracts from state through the ring buffer, so output is
-// independent of how the caller chunks `out`. Refill = squeeze_roundCached
-// followed by Permute, matching squeezeUncached per-block order exactly.
-//
-// The inner XOR loop is split at the ring wrap boundary, so each byte does a
-// plain indexed access instead of a modulo. The second range starts at buf[0]
-// because after consuming `first` bytes the read cursor is exactly at the wrap
-// point by construction.
-func (s *State) squeeze_cached(out []byte, RATE_BYTES int) {
-	got := 0
-	for got < len(out) {
-		if s.sq_n == 0 {
-			s.squeeze_round_cached(RATE_BYTES)
-			s.state.Permute()
-		}
-		take := min(len(out)-got, s.sq_n)
-
-		first := min(take, len(s.sq_buf)-s.sq_pos) // bytes before the ring wraps
-		for j := range first {
-			out[got+j] ^= s.sq_buf[s.sq_pos+j]
-		}
-		// take <= RATE_BYTES <= len(s.buf), so the tail wraps at most once
-		// and `take-first` never exceeds the buffer.
-		for j := range take - first {
-			out[got+first+j] ^= s.sq_buf[j]
-		}
-
-		s.sq_pos = (s.sq_pos + take) % len(s.sq_buf)
-		s.sq_n -= take
-		got += take
-	}
-}
-
-// squeeze_round_uncached XORs bytes of the current rate into `bytes` (uncached path).
-func (s *State) squeeze_round_uncached(bytes []byte) {
+// squeeze_block_nonstream writes up to one rate-block of the current state
+// into bytes (XOR). Caller is responsible for the permute.
+func (s *State) squeeze_block_nonstream(bytes []byte) {
 	i := 0
 	var word_bytes [8]byte
 
@@ -78,44 +93,18 @@ func (s *State) squeeze_round_uncached(bytes []byte) {
 	}
 }
 
-// squeeze_round_cached extracts RATE_BYTES from state into s.buf at s.pos,
-// wrapping via %128. Assumes s.n == 0 (buffer empty), so overwrites are safe.
-// Does NOT permute; the caller permutes after refill.
-func (s *State) squeeze_round_cached(RATE_BYTES int) {
-	wp := uint(s.sq_pos)
+// squeeze_block_stream copies exactly s.rate bytes of the current state into
+// s.buffer and sets s.len = s.rate. Caller permutes after calling.
+func (s *State) squeeze_block_stream() {
 	var word_bytes [8]byte
-	i := 0
-	remaining := RATE_BYTES
+	i, written, remaining := 0, 0, s.rate
 	for remaining > 0 {
 		binary.BigEndian.PutUint64(word_bytes[:], s.state[i])
-		chunk := uint(min(8, remaining))
-		for j := range chunk {
-			s.sq_buf[(wp+j)&127] = word_bytes[j]
-		}
-		wp = (wp + chunk) & 127
-		remaining -= int(chunk)
+		chunk := min(8, remaining)
+		copy(s.buffer[written:], word_bytes[:chunk])
+		written += chunk
+		remaining -= chunk
 		i++
 	}
-	s.sq_n = RATE_BYTES
-}
-
-// This function squeezes into XOR. pass a full-zero `out` if you want only extraction.
-//
-// empty `out` will do NOTHING -- state doesn't get permuted
-func (s *State) Squeeze256(out []byte) {
-	s.squeeze(out, RATE_OF_CAP256_BYTES)
-}
-
-// This function squeezes into XOR. pass a full-zero `out` if you want only extraction.
-//
-// empty `out` will do NOTHING -- state doesn't get permuted
-func (s *State) Squeeze512(out []byte) {
-	s.squeeze(out, RATE_OF_CAP512_BYTES)
-}
-
-// This function squeezes into XOR. pass a full-zero `out` if you want only extraction.
-//
-// empty `out` will do NOTHING -- state doesn't get permuted
-func (s *State) Squeeze960(out []byte) {
-	s.squeeze(out, RATE_OF_CAP960_BYTES)
+	s.len = s.rate
 }

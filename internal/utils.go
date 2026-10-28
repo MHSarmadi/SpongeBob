@@ -7,8 +7,14 @@ const (
 	RATE_OF_CAP960_BYTES = 8
 )
 
-// 10*1dd PAD (dd is domain bits)
+// pad XORs the pad10*1 pattern and the rate-specific domain bits into
+// rate_block. delta is the number of unfilled tail bytes (1 ≤ delta ≤
+// len(rate_block)*8). The domain bits derive from the rate: 12 words → 1,
+// 8 → 2, 1 → 3. Panics on delta <= 0 or unsupported rate.
 func pad(rate_block []uint64, delta int) {
+	if delta <= 0 {
+		panic("invalid delta")
+	}
 	rate := len(rate_block)
 
 	var domain uint64

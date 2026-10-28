@@ -4,104 +4,115 @@ import (
 	"encoding/binary"
 )
 
-// StartAbsorb resets the absorb buffer for a fresh message. Call from Init.
-func (s *State) StartAbsorb(ds uint64, rate int, enable_cache bool) {
-	s.ab_len = 0
-	s.ab_ds = ds
-	s.ab_rate = rate
-	s.ab_sealed = false
-	s.reset_cache(enable_cache)
+// BeginAbsorb transitions _PHASE_READY → _PHASE_ABSORBING and configures the
+// rate, streaming mode, and domain separation for the incoming message.
+// Follow with one or more Absorb calls and (in streaming mode) SealAbsorb
+// before BeginSqueeze.
+func (s *State) BeginAbsorb(RATE_BYTES int, stream bool, DOMAIN_SEPARATION uint64) {
+	switch RATE_BYTES {
+	case RATE_OF_CAP256_BYTES, RATE_OF_CAP512_BYTES, RATE_OF_CAP960_BYTES:
+	default:
+		panic("Unknown rate bytes.")
+	}
+	switch s.phase {
+	case _PHASE_FRESH:
+		panic("Init first.")
+	case _PHASE_READY:
+		s.rate = RATE_BYTES
+		s.phase = _PHASE_ABSORBING
+		s.streaming = stream
+		s.domain = DOMAIN_SEPARATION
+		s.len = 0
+	case _PHASE_ABSORBING:
+		panic("Already absorbing.")
+	case _PHASE_SQUEEZING:
+		panic("Can't absorb mid-squeeze.")
+	default:
+		panic("Unknown phase.")
+	}
 }
 
-// StreamAbsorb feeds bytes without padding. Full blocks go straight to the
-// permutation; the tail stays in ab_buf until Seal or the next call.
-func (s *State) StreamAbsorb(data []byte, RATE_BYTES int) {
-	if s.ab_sealed {
-		panic("StreamAbsorb before StartAbsorb / after SealAbsorb")
-	}
-	if RATE_BYTES != s.ab_rate {
-		panic("StreamAbsorb: RATE_BYTES does not match StartAbsorb rate")
-	}
-	if RATE_BYTES > len(s.ab_buf) {
-		panic("StreamAbsorb: RATE_BYTES exceeds ab_buf")
-	}
-
-	for len(data) > 0 {
-		n := copy(s.ab_buf[s.ab_len:], data)
-		s.ab_len += n
-		data = data[n:]
-
-		// Drain EVERY full block currently buffered.
-		for s.ab_len >= RATE_BYTES {
-			s.permuteBlock(s.ab_buf[:RATE_BYTES])
-			copy(s.ab_buf[:], s.ab_buf[RATE_BYTES:s.ab_len])
-			s.ab_len -= RATE_BYTES
+// Absorb buffers data and absorbs each full rate-sized block into the state.
+// stream=true:  calls accumulate; caller seals with SealAbsorb.
+// stream=false: each call seals immediately (one Absorb per BeginAbsorb).
+// Panics outside _PHASE_ABSORBING.
+func (s *State) Absorb(data []byte) {
+	switch s.phase {
+	case _PHASE_FRESH:
+		panic("Init first.")
+	case _PHASE_READY:
+		panic("BeginAbsorb first.")
+	case _PHASE_ABSORBING:
+		for len(data) > 0 {
+			n := copy(s.buffer[s.len:], data)
+			s.len += n
+			data = data[n:]
+			s.drain_full_blocks()
 		}
+		if !s.streaming {
+			s.SealAbsorb()
+		}
+	case _PHASE_SQUEEZING:
+		panic("Can't absorb mid-squeeze.")
+	default:
+		panic("Unknown phase.")
 	}
 }
 
-// SealAbsorb pads the buffered tail (with pad10*1 + rate domain) and permutes
-// once. Idempotent — Squeeze calls this so a Write-then-Read works.
-// returns true if any Sealing has happened.
+// SealAbsorb pads the buffered tail with pad10*1 + rate domain, absorbs it
+// as the final block, and transitions _PHASE_ABSORBING → _PHASE_READY.
+// The single permute inside prepares the state for squeezing. Returns true
+// on seal, false in _PHASE_READY (idempotent).
 func (s *State) SealAbsorb() bool {
-	if s.ab_sealed {
+	switch s.phase {
+	case _PHASE_FRESH:
+		panic("Init first.")
+	case _PHASE_READY:
 		return false
-	}
-	if s.ab_rate == 0 || s.ab_rate > len(s.ab_buf) {
-		panic("SealAbsorb: ab_rate not set / out of range")
-	}
-	rate_block := s.state[:s.ab_rate/8]
-	s.absorb_round(s.ab_buf[:s.ab_len])
-	pad(rate_block, s.ab_rate-s.ab_len)
-	s.state[15] ^= s.ab_ds
-	s.state.Permute()
-	s.ab_len = 0
-	s.ab_sealed = true
-	s.reset_cache(s.streaming)
-	return true
-}
-
-func (s *State) permuteBlock(block []byte) {
-	s.absorb_round(block)
-	s.state[15] ^= s.ab_ds
-	s.state.Permute()
-	s.reset_cache(s.streaming)
-}
-
-func (s *State) absorb(data []byte, ds uint64, RATE_BYTES int) {
-	if s.ab_sealed {
-		s.StartAbsorb(ds, RATE_BYTES, s.streaming)
-	} else if s.ab_ds != ds || s.ab_rate != RATE_BYTES {
-		panic("absorb: domain or rate change mid-stream; call SealAbsorb first")
-	}
-	s.StreamAbsorb(data, RATE_BYTES)
-	if !s.streaming {
-		s.SealAbsorb()
+	case _PHASE_ABSORBING:
+		s.drain_last_block()
+		s.phase = _PHASE_READY
+		s.len = 0
+		return true
+	case _PHASE_SQUEEZING:
+		panic("Can't seal absorption mid-squeeze.")
+	default:
+		panic("Unknown phase.")
 	}
 }
 
-func (s *State) absorb_round(bytes []byte) {
+// drain_full_blocks absorbs every complete rate-sized block currently in
+// the buffer, shifting remaining tail bytes to the front.
+func (s *State) drain_full_blocks() {
+	for s.len >= s.rate {
+		s.absorb_block(s.buffer[:s.rate])
+		copy(s.buffer[:], s.buffer[s.rate:s.len])
+		s.len -= s.rate
+	}
+}
+
+// drain_last_block pads the buffered tail via pad() and absorbs it as the
+// final block of the message; state is left permuted.
+func (s *State) drain_last_block() {
+	rate_block := s.state[:s.rate/8]
+	pad(rate_block, s.rate-s.len)
+	s.absorb_block(s.buffer[:s.len])
+}
+
+// absorb_block XORs rate_block into state[0:rate/8], applies the domain
+// separation to state[15], and permutes.
+func (s *State) absorb_block(rate_block []byte) {
 	i := 0
-	for len(bytes) >= 8 {
-		s.state[i] ^= binary.BigEndian.Uint64(bytes)
-		bytes = bytes[8:]
+	for len(rate_block) >= 8 {
+		s.state[i] ^= binary.BigEndian.Uint64(rate_block)
+		rate_block = rate_block[8:]
 		i++
 	}
-	if len(bytes) != 0 {
+	if len(rate_block) != 0 {
 		var extra [8]byte
-		copy(extra[:], bytes)
+		copy(extra[:], rate_block)
 		s.state[i] ^= binary.BigEndian.Uint64(extra[:])
 	}
-}
-
-func (s *State) Absorb256(data []byte, domain_separation uint64) {
-	s.absorb(data, domain_separation, RATE_OF_CAP256_BYTES)
-}
-
-func (s *State) Absorb512(data []byte, domain_separation uint64) {
-	s.absorb(data, domain_separation, RATE_OF_CAP512_BYTES)
-}
-
-func (s *State) Absorb960(data []byte, domain_separation uint64) {
-	s.absorb(data, domain_separation, RATE_OF_CAP960_BYTES)
+	s.state[15] ^= s.domain
+	s.state.Permute()
 }
