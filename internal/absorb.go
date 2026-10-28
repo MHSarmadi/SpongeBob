@@ -43,11 +43,21 @@ func (s *State) Absorb(data []byte) {
 	case _PHASE_READY:
 		panic("BeginAbsorb first.")
 	case _PHASE_ABSORBING:
-		for len(data) > 0 {
-			n := copy(s.buffer[s.len:], data)
-			s.len += n
-			data = data[n:]
-			s.drain_full_blocks()
+		if s.len == 0 {
+			// Fast path: no buffered tail, absorb directly from data.
+			for len(data) >= s.rate {
+				s.absorb_block(data[:s.rate])
+				data = data[s.rate:]
+			}
+			s.len = copy(s.buffer[:], data)
+		} else {
+			// Merge path: buffered tail exists, must go through buffer.
+			for len(data) > 0 {
+				n := copy(s.buffer[s.len:], data)
+				s.len += n
+				data = data[n:]
+				s.drain_full_blocks()
+			}
 		}
 		if !s.streaming {
 			s.SealAbsorb()
