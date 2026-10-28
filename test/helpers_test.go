@@ -72,3 +72,11 @@ func hashFn128(d []byte, c string, o []byte)    { spongebob.Hash128(d, c, o) }
 func hashFn256(d []byte, c string, o []byte)    { spongebob.Hash256(d, c, o) }
 func hashFn480(d []byte, c string, o []byte)    { spongebob.Hash480(d, c, o) }
 func macDirect(k, d []byte, c string, o []byte) { spongebob.MAC(k, d, c, o) }
+
+// modeName labels the streaming flag for subtest names.
+func modeName(stream bool) string {
+	if stream {
+		return "streaming"
+	}
+	return "non-streaming"
+}

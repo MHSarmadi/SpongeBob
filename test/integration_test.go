@@ -11,40 +11,48 @@ func TestAbsorbThenSqueeze_Deterministic(t *testing.T) {
 	msg := []byte("the quick brown fox")
 	domain := uint64(0xAABBCCDDEEFF0011)
 
-	s1 := internal.State{}
-	s1.Init(zero_initials, false)
-	s2 := internal.State{}
-	s2.Init(zero_initials, false)
-	s1.Absorb256(msg, domain)
-	s2.Absorb256(msg, domain)
+	run := func() []byte {
+		var s internal.State
+		s.Init(zero_initials)
+		s.BeginAbsorb(internal.RATE_OF_CAP256_BYTES, false, domain)
+		s.Absorb(msg)
+		s.BeginSqueeze(internal.RATE_OF_CAP256_BYTES, false)
+		out := make([]byte, 64)
+		s.Squeeze(out)
+		return out
+	}
 
-	out1 := make([]byte, 64)
-	out2 := make([]byte, 64)
-	s1.Squeeze256(out1)
-	s2.Squeeze256(out2)
-	if !bytes.Equal(out1, out2) {
+	if !bytes.Equal(run(), run()) {
 		t.Fatal("not deterministic")
 	}
 }
 
-func TestAbsorbThenSqueeze_CachedMatchesUncached(t *testing.T) {
+func TestAbsorbThenSqueeze_StreamingMatchesNonStreaming(t *testing.T) {
 	msg := []byte("the quick brown fox jumps over the lazy dog")
 	for _, a := range absorbCases() {
 		for _, r := range squeezeCases() {
 			t.Run(a.name+"/"+r.name, func(t *testing.T) {
-				sc := internal.State{}
-				sc.Init(zero_initials, true)
-				su := internal.State{}
-				su.Init(zero_initials, false)
-				a.f(&sc, msg, 0xABCDEF)
-				a.f(&su, msg, 0xABCDEF)
+				// Non-streaming: absorb seals automatically.
+				var sn internal.State
+				sn.Init(zero_initials)
+				sn.BeginAbsorb(a.rate, false, 0xABCDEF)
+				sn.Absorb(msg)
+				sn.BeginSqueeze(r.rateSize, false)
+				outN := make([]byte, r.rateSize*2)
+				sn.Squeeze(outN)
 
-				outC := make([]byte, r.rateSize*2)
-				outU := make([]byte, r.rateSize*2)
-				r.fn(&sc, outC)
-				r.fn(&su, outU)
-				if !bytes.Equal(outC, outU) {
-					t.Error("cached vs uncached mismatch after absorb")
+				// Streaming: explicit seal before BeginSqueeze.
+				var ss internal.State
+				ss.Init(zero_initials)
+				ss.BeginAbsorb(a.rate, true, 0xABCDEF)
+				ss.Absorb(msg)
+				ss.SealAbsorb()
+				ss.BeginSqueeze(r.rateSize, true)
+				outS := make([]byte, r.rateSize*2)
+				ss.Squeeze(outS)
+
+				if !bytes.Equal(outN, outS) {
+					t.Error("streaming vs non-streaming mismatch")
 				}
 			})
 		}
@@ -61,11 +69,13 @@ func TestAbsorbThenSqueeze_MessageSensitivity(t *testing.T) {
 	}
 	seen := make(map[[32]byte][]byte)
 	for _, msg := range msgs {
-		s := internal.State{}
-		s.Init(zero_initials, false)
-		s.Absorb256(msg, 0)
+		var s internal.State
+		s.Init(zero_initials)
+		s.BeginAbsorb(internal.RATE_OF_CAP256_BYTES, false, 0)
+		s.Absorb(msg)
+		s.BeginSqueeze(internal.RATE_OF_CAP256_BYTES, false)
 		out := make([]byte, 32)
-		s.Squeeze256(out)
+		s.Squeeze(out)
 		var key [32]byte
 		copy(key[:], out)
 		if prev, ok := seen[key]; ok {
@@ -76,20 +86,25 @@ func TestAbsorbThenSqueeze_MessageSensitivity(t *testing.T) {
 }
 
 func TestAbsorbThenSqueeze_MultipleSqueezes(t *testing.T) {
-	// Consecutive cached squeezes must produce a continuous stream.
-	s1 := internal.State{}
-	s1.Init(zero_initials, true)
-	s1.Absorb256([]byte("msg"), 0xDEAD)
-	stream := make([]byte, 96*3)
-	for i := 0; i < 3; i++ {
-		s1.Squeeze256(stream[i*96 : (i+1)*96])
+	// Streaming chunked squeezes must equal one-shot streaming squeeze.
+	setup := func() *internal.State {
+		var s internal.State
+		s.Init(zero_initials)
+		s.BeginAbsorb(internal.RATE_OF_CAP256_BYTES, false, 0xDEAD)
+		s.Absorb([]byte("msg"))
+		s.BeginSqueeze(internal.RATE_OF_CAP256_BYTES, true)
+		return &s
 	}
 
-	s2 := internal.State{}
-	s2.Init(zero_initials, true)
-	s2.Absorb256([]byte("msg"), 0xDEAD)
+	s1 := setup()
+	stream := make([]byte, 96*3)
+	for i := 0; i < 3; i++ {
+		s1.Squeeze(stream[i*96 : (i+1)*96])
+	}
+
+	s2 := setup()
 	oneShot := make([]byte, 96*3)
-	s2.Squeeze256(oneShot)
+	s2.Squeeze(oneShot)
 
 	if !bytes.Equal(stream, oneShot) {
 		t.Error("multiple squeezes != one-shot")

@@ -9,28 +9,29 @@ import (
 
 var zero_initials = [4]uint64{0, 0, 0, 0}
 
-// absorbAndSqueeze absorbs `data` with the given absorb method + domain, then
-// squeezes 32 bytes to observe the resulting state. The squeeze rate is
-// arbitrary; we only need a consistent observation function.
-func absorbAndSqueeze(absorb func(*internal.State, []byte, uint64), data []byte, domain uint64) []byte {
-	s := internal.State{}
-	s.Init(zero_initials, false)
-	absorb(&s, data, domain)
+// absorbAndSqueeze builds a fresh state, absorbs data with the given rate and
+// domain (non-streaming), then squeezes 32 bytes for observation.
+func absorbAndSqueeze(rate int, data []byte, domain uint64) []byte {
+	var s internal.State
+	s.Init(zero_initials)
+	s.BeginAbsorb(rate, false, domain)
+	s.Absorb(data)
+	s.BeginSqueeze(rate, false)
 	out := make([]byte, 32)
-	s.Squeeze256(out)
+	s.Squeeze(out)
 	return out
 }
 
 type absorbCase struct {
 	name string
-	f    func(*internal.State, []byte, uint64)
+	rate int
 }
 
 func absorbCases() []absorbCase {
 	return []absorbCase{
-		{"256", (*internal.State).Absorb256},
-		{"512", (*internal.State).Absorb512},
-		{"960", (*internal.State).Absorb960},
+		{"256", internal.RATE_OF_CAP256_BYTES},
+		{"512", internal.RATE_OF_CAP512_BYTES},
+		{"960", internal.RATE_OF_CAP960_BYTES},
 	}
 }
 
@@ -39,8 +40,8 @@ func TestAbsorb_Deterministic(t *testing.T) {
 	for _, a := range absorbCases() {
 		for _, domain := range []uint64{0, 1, 0xDEADBEEFCAFEBABE} {
 			t.Run(a.name, func(t *testing.T) {
-				x := absorbAndSqueeze(a.f, data, domain)
-				y := absorbAndSqueeze(a.f, data, domain)
+				x := absorbAndSqueeze(a.rate, data, domain)
+				y := absorbAndSqueeze(a.rate, data, domain)
 				if !bytes.Equal(x, y) {
 					t.Errorf("domain=%#x: not deterministic", domain)
 				}
@@ -55,7 +56,7 @@ func TestAbsorb_DomainSeparation(t *testing.T) {
 		t.Run(a.name, func(t *testing.T) {
 			seen := make(map[[32]byte]uint64)
 			for _, domain := range []uint64{0, 1, 2, 3, 0xDEADBEEFCAFEBABE, 0xFFFFFFFFFFFFFFFF} {
-				out := absorbAndSqueeze(a.f, data, domain)
+				out := absorbAndSqueeze(a.rate, data, domain)
 				var key [32]byte
 				copy(key[:], out)
 				if prev, ok := seen[key]; ok {
@@ -71,7 +72,7 @@ func TestAbsorb_RateSensitivity(t *testing.T) {
 	data := []byte("hello")
 	seen := make(map[[32]byte]string)
 	for _, a := range absorbCases() {
-		out := absorbAndSqueeze(a.f, data, 1)
+		out := absorbAndSqueeze(a.rate, data, 1)
 		var key [32]byte
 		copy(key[:], out)
 		if prev, ok := seen[key]; ok {
@@ -83,17 +84,26 @@ func TestAbsorb_RateSensitivity(t *testing.T) {
 
 func TestAbsorb_EmptyInput(t *testing.T) {
 	for _, a := range absorbCases() {
-		s := internal.State{}
-		s.Init(zero_initials, false)
-		// Must not panic.
-		a.f(&s, nil, 0)
-		a.f(&s, []byte{}, 0)
-		a.f(&s, []byte{}, 0xDEADBEEF)
+		for _, stream := range []bool{false, true} {
+			t.Run(a.name+"/"+modeName(stream), func(t *testing.T) {
+				var s internal.State
+				s.Init(zero_initials)
+				absorbOnce := func(data []byte, domain uint64) {
+					s.BeginAbsorb(a.rate, stream, domain)
+					s.Absorb(data)
+					if stream {
+						s.SealAbsorb()
+					}
+				}
+				absorbOnce(nil, 0)
+				absorbOnce([]byte{}, 0)
+				absorbOnce([]byte{}, 0xDEADBEEF)
+			})
+		}
 	}
 }
 
 func TestAbsorb_TrailingZerosDistinguished(t *testing.T) {
-	// pad10*1 must distinguish inputs that differ only in trailing zeros.
 	cases := [][]byte{
 		{}, {0}, {0, 0}, {0, 0, 0},
 		{1}, {1, 0}, {1, 0, 0},
@@ -103,7 +113,7 @@ func TestAbsorb_TrailingZerosDistinguished(t *testing.T) {
 		t.Run(a.name, func(t *testing.T) {
 			seen := make(map[[32]byte][]byte)
 			for _, data := range cases {
-				out := absorbAndSqueeze(a.f, data, 0)
+				out := absorbAndSqueeze(a.rate, data, 0)
 				var key [32]byte
 				copy(key[:], out)
 				if prev, ok := seen[key]; ok {
@@ -116,18 +126,13 @@ func TestAbsorb_TrailingZerosDistinguished(t *testing.T) {
 }
 
 func TestAbsorb_LengthBoundary(t *testing.T) {
-	// Lengths around block boundaries must not panic.
-	type rateCase struct {
-		n int
-		f func(*internal.State, []byte, uint64)
+	rates := []int{
+		internal.RATE_OF_CAP256_BYTES,
+		internal.RATE_OF_CAP512_BYTES,
+		internal.RATE_OF_CAP960_BYTES,
 	}
-	rates := []rateCase{
-		{internal.RATE_OF_CAP256_BYTES, (*internal.State).Absorb256},
-		{internal.RATE_OF_CAP512_BYTES, (*internal.State).Absorb512},
-		{internal.RATE_OF_CAP960_BYTES, (*internal.State).Absorb960},
-	}
-	for _, r := range rates {
-		for _, n := range []int{0, 1, r.n - 1, r.n, r.n + 1, 2*r.n - 1, 2 * r.n, 2*r.n + 1} {
+	for _, rate := range rates {
+		for _, n := range []int{0, 1, rate - 1, rate, rate + 1, 2*rate - 1, 2 * rate, 2*rate + 1} {
 			if n < 0 {
 				continue
 			}
@@ -135,9 +140,10 @@ func TestAbsorb_LengthBoundary(t *testing.T) {
 			for i := range data {
 				data[i] = byte(i * 7)
 			}
-			s := internal.State{}
-			s.Init(zero_initials, false)
-			r.f(&s, data, 0xDEADBEEF)
+			var s internal.State
+			s.Init(zero_initials)
+			s.BeginAbsorb(rate, false, 0xDEADBEEF)
+			s.Absorb(data)
 		}
 	}
 }
