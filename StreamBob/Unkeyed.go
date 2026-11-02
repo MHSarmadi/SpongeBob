@@ -117,6 +117,10 @@ func (h *Unkeyed) init(v variant, context string, DOMAIN uint64) {
 //
 // Returns errUninitialized if h has not been initialized or has been Wiped.
 func (h *Unkeyed) Absorb(p []byte) (int, error) {
+	return h.AbsorbCustomDomain(p, internal.PLA1NTXT)
+}
+
+func (h *Unkeyed) AbsorbCustomDomain(p []byte, DOMAIN_SEPARATION uint64) (int, error) {
 	if h.variant == 0 {
 		return 0, errUninitialized
 	}
@@ -124,9 +128,11 @@ func (h *Unkeyed) Absorb(p []byte) (int, error) {
 		h.state.Reset()
 	}
 	if !h.absorbing {
-		h.state.BeginAbsorb(h.rate_bytes, true, internal.PLA1NTXT)
+		h.state.BeginAbsorb(h.rate_bytes, true, DOMAIN_SEPARATION)
 		h.absorbing = true
 		h.squeezing = false
+	} else if DOMAIN_SEPARATION != h.state.GetCurrentDomain() {
+		panic("streambob: can't change domain mid-absorption. seal first.")
 	}
 	if len(p) == 0 {
 		return 0, nil // no-op: don't unseal for an empty absorb

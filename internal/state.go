@@ -85,6 +85,10 @@ func (s *State) Clone() State {
 	return *s
 }
 
+func (s *State) GetCurrentDomain() uint64 {
+	return s.domain
+}
+
 // Wipe zeroes the state, buffer, and bookkeeping, and moves to _PHASE_FRESH.
 // Safe from any phase; the State is unusable until Init is called again.
 func (s *State) Wipe() {

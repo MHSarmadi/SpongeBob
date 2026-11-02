@@ -8,9 +8,14 @@ const (
 	C0NT3XT_ uint64 = 0x43306e743378743b // C0nt3xt;
 	S3CR3T__ uint64 = 0x5333637233743b3b // S3cr3t;;
 	PLA1NTXT uint64 = 0x506c61316e747874 // Pla1ntxt
+	N0NC3___ uint64 = 0x4e306e63333b3b3b // N0nc3;;;
+	ADD_DATA uint64 = 0x4164642d44617461 // Add-Data
+	AUTH_TAG uint64 = 0x417574682d546167 // Auth-Tag
 
 	UNKEYED_ uint64 = 0x556e6b337933643b // Unk3y3d;
 	KEYED___ uint64 = 0x4b337933643b3b3b // K3y3d;;;
+	STRMCPHR uint64 = 0x5374726d43706872 // StrmCphr
+	FULLCPHR uint64 = 0x46756c6c43706872 // FullCphr
 
 	KDFUNC__ uint64 = 0x4b4446756e633b3b // KDFunc;;
 )
